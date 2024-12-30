@@ -1,19 +1,48 @@
 import subprocess
 import platform
 import re
+import socket
+import struct
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def ping(host, count=1, timeout=500):
-    """Ping a host and return True if reachable"""
+    """Ping a host and return response time if reachable"""
     param = "-n" if platform.system().lower() == "windows" else "-c"
     timeout_param = "-w" if platform.system().lower() == "windows" else "-W"
     
     command = ["ping", param, str(count), timeout_param, str(timeout), host]
     try:
         output = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        return output.returncode == 0
+        if output.returncode == 0:
+            # Extract response time from ping output
+            match = re.search(r"time=(\d+)ms", output.stdout.decode())
+            return int(match.group(1)) if match else 0
+        return None
     except Exception:
-        return False
+        return None
+
+def get_hostname(ip):
+    """Get hostname from IP address"""
+    try:
+        return socket.gethostbyaddr(ip)[0]
+    except socket.herror:
+        return "Unknown"
+
+def get_mac_address(ip):
+    """Get MAC address using ARP (works on local network)"""
+    try:
+        if platform.system().lower() == "windows":
+            command = ["arp", "-a", ip]
+        else:
+            command = ["arp", "-n", ip]
+            
+        output = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if output.returncode == 0:
+            match = re.search(r"(([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2}))", output.stdout.decode())
+            return match.group(0) if match else "Unknown"
+        return "Unknown"
+    except Exception:
+        return "Unknown"
 
 def validate_ip_range(ip_range):
     """Validate IP range format"""
@@ -28,7 +57,7 @@ def parse_ip_range(ip_range):
 
 def scan_network(base_ip, start, end):
     """Scan a range of IP addresses"""
-    active_hosts = []
+    results = []
     total = end - start + 1
     completed = 0
     
@@ -41,14 +70,22 @@ def scan_network(base_ip, start, end):
         for future in as_completed(futures):
             completed += 1
             ip = f"{base_ip}.{futures[future]}"
-            if future.result():
-                active_hosts.append(ip)
+            response_time = future.result()
+            if response_time is not None:
+                hostname = get_hostname(ip)
+                mac_address = get_mac_address(ip)
+                results.append({
+                    'ip': ip,
+                    'hostname': hostname,
+                    'response_time': response_time,
+                    'mac_address': mac_address
+                })
             print(f"Scanning: {completed}/{total} ({completed/total:.0%})", end="\r")
     
-    return active_hosts
+    return results
 
 def main():
-    print("AutoPing - Network Scanner")
+    print("AutoPing - Enhanced Network Scanner")
     print("Example format: 192.168.1.1-254\n")
     
     while True:
@@ -61,11 +98,18 @@ def main():
     
     print(f"\nScanning {base_ip}.{start} to {base_ip}.{end}...\n")
     
-    active_hosts = scan_network(base_ip, start, end)
+    results = scan_network(base_ip, start, end)
     
     print("\n\nActive hosts found:")
-    for host in active_hosts:
-        print(f"• {host}")
+    print("{:<15} {:<20} {:<10} {:<17}".format("IP Address", "Hostname", "Ping (ms)", "MAC Address"))
+    print("-" * 60)
+    for result in results:
+        print("{:<15} {:<20} {:<10} {:<17}".format(
+            result['ip'],
+            result['hostname'],
+            result['response_time'],
+            result['mac_address']
+        ))
 
 if __name__ == "__main__":
     try:
