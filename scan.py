@@ -1,19 +1,7 @@
 import subprocess
 import platform
-import socket
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-def get_local_ip():
-    """Get local IP address"""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception:
-        return None
 
 def ping(host, count=1, timeout=500):
     """Ping a host and return True if reachable"""
@@ -26,6 +14,17 @@ def ping(host, count=1, timeout=500):
         return output.returncode == 0
     except Exception:
         return False
+
+def validate_ip_range(ip_range):
+    """Validate IP range format"""
+    pattern = r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}-\d{1,3}$"
+    return re.match(pattern, ip_range) is not None
+
+def parse_ip_range(ip_range):
+    """Parse IP range into components"""
+    base_ip, range_part = ip_range.rsplit(".", 1)
+    start, end = map(int, range_part.split("-"))
+    return base_ip, start, end
 
 def scan_network(base_ip, start, end):
     """Scan a range of IP addresses"""
@@ -49,32 +48,18 @@ def scan_network(base_ip, start, end):
     return active_hosts
 
 def main():
-    print("AutoPing - Automatic Network Scanner\n")
+    print("AutoPing - Network Scanner")
+    print("Example format: 192.168.1.1-254\n")
     
-    local_ip = get_local_ip()
-    if not local_ip:
-        print("Error: Could not detect local IP address")
-        return
+    while True:
+        ip_range = input("Enter IP address range: ").strip()
+        if validate_ip_range(ip_range):
+            break
+        print("Invalid format. Please use format like 192.168.1.1-254")
     
-    print(f"Detected local IP: {local_ip}")
+    base_ip, start, end = parse_ip_range(ip_range)
     
-    # Determine network range based on private IP classes
-    first_octet = int(local_ip.split(".")[0])
-    
-    if first_octet == 10:
-        # Class A: 10.0.0.0 - 10.255.255.255
-        base_ip = "10.0.0"
-        start, end = 1, 254
-    elif first_octet == 172 and 16 <= int(local_ip.split(".")[1]) <= 31:
-        # Class B: 172.16.0.0 - 172.31.255.255
-        base_ip = ".".join(local_ip.split(".")[:2]) + ".0"
-        start, end = 1, 254
-    else:
-        # Class C: 192.168.0.0 - 192.168.255.255
-        base_ip = ".".join(local_ip.split(".")[:3])
-        start, end = 1, 254
-    
-    print(f"Scanning network: {base_ip}.{start} to {base_ip}.{end}\n")
+    print(f"\nScanning {base_ip}.{start} to {base_ip}.{end}...\n")
     
     active_hosts = scan_network(base_ip, start, end)
     
